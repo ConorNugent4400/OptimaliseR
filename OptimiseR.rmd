@@ -1,0 +1,390 @@
+---
+title: "Portfolio Optimisation Tool"
+author: "Conor Nugent"
+date: "Version Date : 2023-09-13"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r SETUP, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+#install.packages("quantmod")
+#install.packages("PerformanceAnalytics")
+#install.packages("dygraphs")
+#install.packages("corrplot")
+#install.packages("tidyr")
+#install.packages("tidyquant")
+#install.packages("plotly")
+#install.packages("timetk")
+#install.packages("forcats")
+    library(quantmod)
+    library(PerformanceAnalytics)
+    library(dygraphs)
+    library(corrplot)
+    library(tidyr)
+    library(tidyquant)
+    library(plotly)
+    library(timetk)
+    library(forcats)
+    
+
+#install.packages("tinytex")
+library(tinytex)
+#tinytex::install_tinytex()
+
+#install.packages("reticulate")
+library(reticulate)
+```
+
+```{python SELECTER, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+#### Python Program to take user inputs and make text file
+### Install for GUI using following line but in terminal,same with Python to R ocnvert
+###python -m pip install pysimplegui
+
+# import the reticulate package to access R objects
+#import reticulate
+
+# import the PySimpleGUI package to create a GUI
+import PySimpleGUI as sg
+
+# create a layout for the text box and the buttons
+layout = [[sg.Text('Enter your inputs one by one and click Submit. Click Cancel to exit.')], 
+          [sg.InputText(key='input')], 
+          [sg.Button('Submit'), sg.Button('Cancel')]]
+
+# create a window with the layout
+window = sg.Window('Input Box', layout)
+
+# create an empty list to store the inputs
+inputs = []
+
+# loop until the user clicks Cancel or closes the window
+while True:
+    # read the event and values from the window
+    event, values = window.read()
+    
+    # if the user clicks Cancel or closes the window, break the loop
+    if event in (sg.WIN_CLOSED, 'Cancel'):
+        break
+    
+    # if the user types something in the input box, check if it is empty or not
+    if event == 'input':
+        # if the input is empty, disable the submit button
+        if values['input'] == '':
+            window['submit'].update(disabled=True)
+        # otherwise, enable the submit button
+        else:
+            window['submit'].update(disabled=False)
+    
+    # if the user clicks Submit, check if the input value is empty or not
+    if event == 'Submit':
+        # if the input is empty, show a warning message and do nothing
+        if values['input'] == '':
+            sg.popup('Please enter something', title='Warning')
+        # otherwise, append the input value to the list after converting it to all caps
+        else:
+            inputs.append(values['input'].upper()) # use upper method for strings
+        
+        # clear the input box for the next input
+        window['input'].update('')
+        
+# close the window
+window.close()
+
+
+
+
+
+```
+
+```{r, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+# assign the Python list to an R variable
+inputs <- py$inputs
+
+# write the inputs to a text file named "inputs.txt"
+writeLines (inputs, "portfolio.txt")
+
+```
+
+```{r FUNCTION CREATION, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+monthly_returns <- function(ticker)
+{
+  #Yoink from Yahoo
+  stock <- getSymbols(ticker, src = "yahoo", auto.assign = FALSE) 
+  #Prevents those pesky errors from blank boxes
+  stock <- na.omit(stock)
+  # We dont really need all that info, lets restrict to adjusted end of day
+  #That's decent enough for our comparison needs
+  stock <- stock[, 6]
+  # Calculate monthly Simple Returns 
+  #for future predictions
+  #Can go Logarithmic here, but we used adjusted figures already
+  data <- periodReturn(stock, period = "monthly", type = "arithmetic")
+  # Assign to the global environment to be accessible otherwise R be like 
+  #I don't know where that is
+  assign(ticker, data, envir = .GlobalEnv)
+}
+
+# Set the current folder as the working directory
+portfolio <- readLines("portfolio.txt")
+portfolio <- lapply(portfolio, monthly_returns)
+#Test environment
+obj_names <- ls()
+obj_names
+
+
+# Filter for objects that are of class xts
+#Basically pulls companies into tables with returns
+xts_objs <- Filter(function(x) is(x, "xts"), mget(obj_names))
+xts_objs
+
+# Merge the xts objects into a single xts object, one big table
+merged_xts <- Reduce(merge, xts_objs)
+merged_xts
+
+#Ensure columns named
+col_names <- read.table(file = "portfolio.txt", header = FALSE)
+col_names
+colnames(merged_xts) <- col_names$V1
+
+#Get rid of NA values
+merged_xts
+merged_xts<- na.omit(merged_xts)
+
+merged_xts
+
+```
+
+## Foreward
+This tool is designed to provide a mathematical aid in optimizing a portfolio of your selection.
+It is designed to give some salient information on your selected stocks, and then by simulation, identify the minimum variance and optimum portfolios. At default the code runs 100,000 portfolio simulations, but feel free to adjust the **'num_port'** variable in the **'PORTFOLIO BUILDING'** chunk to your own desires.
+
+Before we continue a few things to note:
+
+* The tool is intended to work with the users own trading narrative, and as such features the same limitations.
+
+* The tool uses data from Yahoo Finance, it is a good source for correct tickers for this tool.
+
+* The python tool inbuilt for taking inputs is not case sensitive, but an invalid ticker will mean the program does not run as intended.
+
+
+## Interactive Graph of Stock Performance
+This section provides a view of the stocks relative performances against one another.
+Hovering will show the values at that point in the top right.
+I would reccomend not going above 12 stocks in this tool, it can handle it but colours will be reused and the picture will lose clarity.
+```{r INTERACTIVE STOCK GRAPH, warning=FALSE, echo=FALSE}
+#Lets us plot that b
+#Produce interactive chart of stock returns
+dygraph(merged_xts, main = "Portfolio Stocks") %>%
+  dyAxis("y", label = "Return", valueRange = c(-1,0.5))%>%
+  dyOptions(colors = RColorBrewer::brewer.pal(12, "Dark2"))
+
+```
+
+## Correlation Plot
+This section prints a correlation plot of your proposed portfolio. It can be  useful to understand the relationships between the stocks you have chosen. High correlation may suggest over exposure to a particular industry.
+
+```{r PLOT COVARIANCE MATRIX, warning=FALSE, echo=FALSE}
+portfolio=merged_xts
+#What about Correlation in our Portfolio?
+#Can call up matrix to see
+#Interested in Stock Vs S&P
+corrplot::corrplot(cor(portfolio), method = "number")
+#Remember Low Inter-Stock correlation is good
+#Market (S&P here) correlation depends on your beliefs
+```
+
+
+```{r PORTFOLIO BUILDING, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+
+#Mean Return of Portfolio
+mean_ret <- colMeans(portfolio)
+print(round(mean_ret, 5))
+
+#Lets start Random Weighting
+wts <- runif(n = length(colnames(portfolio)))
+print(wts)
+print(sum(wts))
+
+#Be good to normalise them though....
+wts <- wts/sum(wts)
+print(wts)
+sum(wts)
+port_returns <- (sum(wts * mean_ret) + 1)^12 - 1
+
+#Analyse risk
+cov_mat <- cov(portfolio) * 12
+print(round(cov_mat,4))
+
+port_risk <- sqrt(t(wts) %*% (cov_mat %*% wts))
+print(port_risk)
+
+#Sharpe Ratio
+#The greater it is the better the risk adjusted preformance is
+#Between 1 and 2 for the ratio indicates acceptable performance 
+#compared to the performance of risk-free investment.
+sharpe_ratio <- port_returns/port_risk
+print(sharpe_ratio)
+
+
+#Now Lets get Looping
+#You can change this number for more possibilities to run through
+num_port <- 100000
+
+# Creating empty matrices/vectors to store the weights
+all_wts <- matrix(nrow = num_port,
+                  ncol = length(colnames(portfolio)))
+  #portfolio
+  #all_wts
+port_returns <- vector('numeric', length = num_port)
+  #port_returns
+port_risk <- vector('numeric', length = num_port)
+  #port_risk
+sharpe_ratio <- vector('numeric', length = num_port)
+  #sharpe_ratio
+
+
+##Running Loop
+  for (i in seq_along(port_returns)) {
+    
+    wts <- runif(length(colnames(portfolio)))
+    wts <- wts/sum(wts)
+    
+    # Storing weight in the matrix
+    all_wts[i,] <- wts
+    
+    # Portfolio returns
+    port_ret <- sum(wts * mean_ret)
+    port_ret <- ((port_ret + 1)^12) - 1
+    
+    # Storing Portfolio Returns values
+    port_returns[i] <- port_ret
+    
+    # Creating and storing portfolio risk
+    port_sd <- sqrt(t(wts) %*% (cov_mat  %*% wts))
+    port_risk[i] <- port_sd
+    
+    # Creating and storing Portfolio Sharpe Ratios assuming 0% Risk free rate
+    
+    sr <- port_ret/port_sd
+    sharpe_ratio[i] <- sr
+    
+  }
+
+# Storing the values in the table
+portfolio_values <- tibble(Return = port_returns,
+                           Risk = port_risk,
+                           SharpeRatio = sharpe_ratio)
+colnames(portfolio_values)
+portfolio_values
+
+# Converting matrix to a tibble and changing column names
+all_wts <- tk_tbl(all_wts, preserve_index = "FALSE")
+colnames(all_wts) <- colnames(portfolio)
+all_wts
+
+# Combing all the values together
+portfolio_values <- tk_tbl(cbind(all_wts,
+                                 portfolio_values))
+
+head(portfolio_values)
+
+#Minimum Variance Portfolio
+min_var <- portfolio_values[which.min(portfolio_values$Risk),]
+portfolio_values
+min_var
+
+#Optimum Portfolio
+max_sr <- portfolio_values[which.max(portfolio_values$SharpeRatio),]
+max_sr
+
+```
+
+```{r WORKAROUNDS FOR FUTURE PLOTTING, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+gatherworkaround=subset(portfolio_values, select = -c(Return, Risk, SharpeRatio))
+gatherworkaround
+
+#Workaround times
+altmin_var=subset(min_var, select = -c(Return, Risk, SharpeRatio))
+min_var
+altmin_var
+
+altmax_sr=subset(max_sr, select = -c(Return, Risk, SharpeRatio))
+max_sr
+altmax_sr
+```
+
+
+```{r FINAL VISUALISATION, warning=FALSE, echo=FALSE}
+#Plot Efficient Frontier
+p3 <- portfolio_values %>%
+  ggplot(aes(x = Risk, y = Return, color = SharpeRatio)) +
+  geom_point() +
+  theme_classic() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = 'Annualized Risk',
+       y = 'Annualized Returns',
+       title = "Portfolio Optimization & Efficient Frontier") +
+  geom_point(aes(x = Risk,
+                 y = Return), data = min_var, color = 'green',) +
+  geom_text(aes(x = Risk,
+                y = Return, label = "Min Var"), data = min_var, nudge_y = 0.02, 
+            color='black', fontface='bold') +
+  geom_point(aes(x = Risk,
+                 y = Return), data = max_sr, color = 'red',)+
+  geom_text(aes(x = Risk,
+                y = Return, label = "Max SR"), data = max_sr, nudge_y = 0.02,
+            color='black', fontface='bold')
+
+ggplotly(p3)
+
+```
+
+## Minimum Variance Portfolio
+
+A minimum variance portfolio is an investment strategy that aims to minimize the risk of a portfolio by diversifying the holdings in such a way that the price volatility of the entire portfolio is brought down 1. The idea behind this strategy is to combine high-risk stocks in a manner that offsets each other, ultimately reducing the volatility of the entire portfolio 1. This approach is influenced by the modern portfolio theory given by Harry Markowitz. In 1952, Markowitz stated that portfolio variance could be minimized if stocks are selected using negative correlation. If the correlation between assets within a portfolio is less, variance is also less 1. The minimum variance method considers the investment weight and the variance of each investment 1.
+
+To put it simply, a minimum variance portfolio is a collection of securities that combine to minimize the price volatility of the overall portfolio 2. By diversifying your holdings, you can reduce volatility and balance out investments that may be risky on their own 2.
+
+This section reveals the mweightings of your selected stocks that gives the lowest variance. Keep in mind all the conditions of the strategy above may not have been met by your selection.
+```{r MIN_VAR PORTFOLIO, warning=FALSE, echo=FALSE}
+min_var
+#Plot minimum variance
+p <- min_var %>%
+  gather(colnames(altmin_var), key = Asset,
+         value = Weights) %>%
+  mutate(Asset = as.factor(Asset)) %>%
+  ggplot(aes(x = fct_reorder(Asset,Weights), y = Weights, fill = Asset)) +
+  geom_bar(stat = 'identity') +
+  theme_minimal() +
+  labs(x = 'Assets', y = 'Weights', title = "Minimum Variance Portfolio Weights") +
+  scale_y_continuous(labels = scales::percent) 
+
+ggplotly(p)
+
+```
+
+## Optimal Portfolio
+The Sharpe ratio is a measure of how much return an investment generates for the amount of risk it takes on 1. It is named after William Sharpe, who developed the ratio in 1966 1. The Sharpe ratio is calculated by subtracting the risk-free rate of return from the investment’s rate of return and then dividing that result by the investment’s standard deviation 1. The risk-free rate of return is the return on an investment that carries no risk, such as a government bond 1. The standard deviation measures how much the investment’s returns vary over time 1.
+
+In simpler terms, the Sharpe ratio helps investors understand how much return they are getting for each unit of risk they take on 1. A higher Sharpe ratio indicates that an investment is generating more return per unit of risk than a lower Sharpe ratio investment 1. For example, if two investments have the same rate of return but one has a higher standard deviation, then it has a lower Sharpe ratio because it is taking on more risk to generate that return 1.
+
+This is the portfolio weighting with the highest Sharpe Ratio found in our simulations
+```{r OPTIMAL PORFOLIO, warning=FALSE, echo=FALSE}
+max_sr
+#Plot Optimum
+p2 <- max_sr %>%
+  gather(colnames(altmax_sr), key = Asset,
+         value = Weights) %>%
+  mutate(Asset = as.factor(Asset)) %>%
+  ggplot(aes(x = fct_reorder(Asset,Weights), y = Weights, fill = Asset)) +
+  geom_bar(stat = 'identity') +
+  theme_minimal() +
+  labs(x = 'Assets', y = 'Weights', title = "Tangency Portfolio Weights") +
+  scale_y_continuous(labels = scales::percent) 
+
+ggplotly(p2)
+```
+
