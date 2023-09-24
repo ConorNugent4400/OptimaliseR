@@ -1,5 +1,5 @@
 # OptimaliseR
-This R Tool is designed to provide information on a nominated portfolio. <br/>
+This R Tool is designed to provide information on a nominated portfolio. It also provides suggested weights to go with the selected stocks to achieve different trading outcomes.<br/>
 <br/>
 **Open in your R IDE and hit Knit to run** <br/>
 
