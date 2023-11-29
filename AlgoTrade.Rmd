@@ -1,0 +1,273 @@
+---
+title: "AlgoTrade"
+author: "Conor Nugent"
+date: "Version Date : 2023-11-02"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r SETUP, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+#install.packages("quantmod")
+#install.packages("PerformanceAnalytics")
+#install.packages("dygraphs")
+#install.packages("corrplot")
+#install.packages("tidyr")
+#install.packages("tidyquant")
+#install.packages("plotly")
+#install.packages("timetk")
+#install.packages("forcats")
+
+library(quantmod)
+    library(PerformanceAnalytics)
+    library(dygraphs)
+    library(corrplot)
+    library(tidyr)
+    library(tidyquant)
+    library(plotly)
+    library(timetk)
+    library(forcats)
+    
+
+#install.packages("tinytex")
+library(tinytex)
+#tinytex::install_tinytex()
+
+#install.packages("reticulate")
+library(reticulate)
+
+
+
+#provides progress bars for apply functions.
+library(pbapply)
+#which provides technical analysis functions for financial data.
+library(TTR)
+#which provides interactive time series charts
+library(dygraphs)
+#which provides tools for working with dates and times
+library(lubridate)
+#For managing, modeling, analyzing, and visualizing financial quantitative data
+library(quantmod)
+#Provides an R interface to econometric functions for performance and risk analysis of financial instruments or portfolios.
+library(PerformanceAnalytics)
+#A graphical display of a correlation matrix or general matrix.
+library(corrplot)
+#Tools for changing the layout of your data sets to a tidy format.
+library(tidyr)
+#Brings quantitative financial modelling to the tidyverse. It integrates the best resources for collecting and analyzing financial data, zoo, xts, quantmod, TTR, and PerformanceAnalytics, with the tidy data infrastructure of the tidyverse allowing for seamless interaction between each.
+library(tidyquant)
+#Create interactive web graphics from ‘ggplot2’ graphs and/or a custom interface to the (MIT-licensed) JavaScript library ‘plotly.js’.
+library(plotly)
+#A toolkit for working with time series in R.
+library(timetk)
+# Tools for working with categorical variables (factors).
+library(forcats)
+#Helper functions to manage TinyTeX, and compile LaTeX documents to PDF.
+library(tinytex)
+#Interface to ‘Python’ modules, classes, and functions
+library(reticulate)
+
+```
+
+
+```{python SELECTER, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+#### Python Program to take user inputs and make text file
+### Install for GUI using following line but in terminal,same with Python to R ocnvert
+#python -m pip install pysimplegui
+
+# import the reticulate package to access R objects
+#import reticulate
+
+# import the PySimpleGUI package to create a GUI
+import PySimpleGUI as sg
+
+# create a layout for the text box and the buttons
+layout = [[sg.Text('Enter your inputs one by one and click Submit. Click Cancel to exit.')], 
+          [sg.InputText(key='input')], 
+          [sg.Button('Submit'), sg.Button('Cancel')]]
+
+# create a window with the layout
+window = sg.Window('Input Box', layout)
+
+# create an empty list to store the inputs
+inputs = []
+
+# loop until the user clicks Cancel or closes the window
+while True:
+    # read the event and values from the window
+    event, values = window.read()
+    
+    # if the user clicks Cancel or closes the window, break the loop
+    if event in (sg.WIN_CLOSED, 'Cancel'):
+        break
+    
+    # if the user types something in the input box, check if it is empty or not
+    if event == 'input':
+        # if the input is empty, disable the submit button
+        if values['input'] == '':
+            window['submit'].update(disabled=True)
+        # otherwise, enable the submit button
+        else:
+            window['submit'].update(disabled=False)
+    
+    # if the user clicks Submit, check if the input value is empty or not
+    if event == 'Submit':
+        # if the input is empty, show a warning message and do nothing
+        if values['input'] == '':
+            sg.popup('Please enter something', title='Warning')
+        # otherwise, append the input value to the list after converting it to all caps
+        else:
+            inputs.append(values['input'].upper()) # use upper method for strings
+        
+        # clear the input box for the next input
+        window['input'].update('')
+        
+# close the window
+window.close()
+
+```
+
+
+
+```{r python-r bridge, warning=FALSE, include=FALSE, echo=FALSE, results = FALSE}
+# assign the Python list to an R variable
+inputs <- py$inputs
+
+# write the inputs to a text file named "inputs.txt"
+writeLines (inputs, "portfolio.txt")
+
+```
+
+
+```{r, results = FALSE}
+
+library(quantmod)
+library(lubridate)
+
+monthly_returns <- function(ticker)
+{
+  # Get today's date
+  end.date <- Sys.Date()
+  # Calculate the date three years ago
+  start.date <- end.date - months(30)
+  
+  # Yoink from Yahoo
+  stock <- getSymbols(ticker, src = "yahoo", from = start.date, to = end.date, auto.assign = FALSE) 
+  # Prevents those pesky errors from blank boxes
+  stock <- na.omit(stock)
+  # We don't really need all that info, let's restrict to adjusted end of day
+  # That's decent enough for our comparison needs
+  stock <- stock[, 6]
+  # Calculate monthly Simple Returns 
+  # for future predictions
+  # Can go Logarithmic here, but we used adjusted figures already
+  data <- periodReturn(stock, period = "daily", type = "arithmetic")
+  # Assign to the global environment to be accessible otherwise R be like 
+  # I don't know where that is
+  assign(ticker, data, envir = .GlobalEnv)
+}
+
+# Set the current folder as the working directory
+portfolio <- readLines("portfolio.txt")
+portfolio <- lapply(portfolio, monthly_returns)
+# Test environment
+obj_names <- ls()
+obj_names
+
+# Filter for objects that are of class xts
+# Basically pulls companies into tables with returns
+xts_objs <- Filter(function(x) is(x, "xts"), mget(obj_names))
+xts_objs
+
+# Merge the xts objects into a single xts object, one big table
+merged_xts <- Reduce(merge, xts_objs)
+merged_xts
+
+# Ensure columns named
+col_names <- read.table(file = "portfolio.txt", header = FALSE)
+col_names
+colnames(merged_xts) <- col_names$V1
+
+# Get rid of NA values
+merged_xts
+merged_xts<- na.omit(merged_xts)
+
+merged_xts
+```
+
+
+
+```{r INTERACTIVE STOCK GRAPH, warning=FALSE, echo=FALSE}
+#Lets us plot that b
+#Produce interactive chart of stock returns
+dygraph(merged_xts, main = "Portfolio Stocks") %>%
+  dyAxis("y", label = "Return",)%>%
+  dyOptions(colors = RColorBrewer::brewer.pal(12, "Dark2"))  %>%
+  dyRangeSelector(dateWindow = c(Sys.Date()-years(1), Sys.Date()))
+
+```
+
+```{r Moving Average}
+mov.avgs<-function(stock.df){
+  ifelse((nrow(stock.df)<(2*260)),
+         x<-data.frame(stock.df, 'NA', 'NA'),
+         x<-data.frame(stock.df, SMA(stock.df, 200), SMA(stock.df, 50)))
+  colnames(x)<-c(names(stock.df), 'sma_200','sma_50')
+  x<-x[complete.cases(x$sma_200),]
+  return(x)
+  }
+
+```
+
+
+```{r}
+stocks.ts<-pblapply(merged_xts, mov.avgs)
+```
+
+
+
+```{r, , include=TRUE, echo=TRUE, results = TRUE}
+# Get the list of stock symbols
+stock_symbols <- names(stocks.ts)
+
+# Function to plot moving averages for a given stock symbol
+plot_moving_averages <- function(stock_symbol) {
+  plot <- dygraph(stocks.ts[[stock_symbol]][,c('sma_200','sma_50')],main = paste('Moving Averages Plot for', stock_symbol)) %>%
+    dySeries('sma_50', label = 'sma 50') %>%
+    dySeries('sma_200', label = 'sma 200') %>%
+    dyRangeSelector(height = 30)
+  
+  print(plot)
+  return(plot)
+}
+
+# Iterate over each stock symbol and plot
+for(i in seq_along(stock_symbols)) {
+  plot_moving_averages(stock_symbols[i])
+}
+```
+
+```{r}
+# Get the list of stock symbols
+stock_symbols <- names(stocks.ts)
+
+# Function to plot moving averages for a given stock symbol
+plot_moving_averages <- function(stock_symbol) {
+  plot <- dygraph(stocks.ts[[stock_symbol]][,c('sma_200','sma_50')],main = paste('Moving Averages Plot for', stock_symbol)) %>%
+    dySeries('sma_50', label = 'sma 50') %>%
+    dySeries('sma_200', label = 'sma 200') %>%
+    dyRangeSelector(height = 30)
+  
+  return(plot)
+}
+
+# Iterate over each stock symbol and plot
+for(i in seq_along(stock_symbols)) {
+  htmltools::browsable(plot_moving_averages(stock_symbols[i]))
+}
+
+
+```
+
+
