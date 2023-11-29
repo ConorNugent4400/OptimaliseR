@@ -1,5 +1,6 @@
 # OptimaliseR
 This R Tool is designed to provide information on a nominated portfolio. It also provides suggested weights to go with the selected stocks to achieve different trading outcomes.<br/>
+A new file 'AlgoTrade' has been added. This is still a work in progress. It is used to analyse Moving Average long and short term trends to identify investment oppurtunities. Feel free to explore it. **Run this Chunk-Wise in your IDE, as the printing feature is causing difficulties with multiple graphs**<br/>
 The goal of this project is to make trading and some of the more mathematical approaches to it more accessible.
 <br/>
 **Open in your R IDE and hit Knit to run** <br/>
